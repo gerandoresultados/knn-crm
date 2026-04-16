@@ -11,7 +11,19 @@ const STATUS_LIST = [
   { val: 'comercial',  label: 'Comercial em contato',    bg: '#FBEAF0', color: '#72243E' },
 ]
 
+const STATUS_FRANQUEADO = [
+  { val: 'ativo',       label: 'Ativo',           bg: '#EAF3DE', color: '#27500A' },
+  { val: 'implantacao', label: 'Em implantação',   bg: '#E6F1FB', color: '#0C447C' },
+  { val: 'suspenso',    label: 'Suspenso',         bg: '#FAEEDA', color: '#633806' },
+  { val: 'cancelado',   label: 'Cancelado',        bg: '#FCEBEB', color: '#791F1F' },
+]
+
 function pct(a, b) { return b > 0 ? Math.round((a / b) * 100) : 0 }
+
+function BadgeFranqueado({ status }) {
+  const s = STATUS_FRANQUEADO.find(x => x.val === status) || STATUS_FRANQUEADO[0]
+  return <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 99, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{s.label}</span>
+}
 
 function LoginPage() {
   const [email, setEmail] = useState('')
@@ -66,9 +78,12 @@ function PainelMaster({ onLogout }) {
   const [novaUnidade, setNovaUnidade] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
+  const [novoStatus, setNovoStatus] = useState('implantacao')
   const [modalAberto, setModalAberto] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
+  const [msgTipo, setMsgTipo] = useState('ok')
+  const [abaAtiva, setAbaAtiva] = useState('ativos')
 
   useEffect(() => { carregarDados() }, [])
 
@@ -85,25 +100,34 @@ function PainelMaster({ onLogout }) {
     setSalvando(true)
     setMsg('')
     const { data: signData, error: signError } = await supabase.auth.signUp({ email: novoEmail, password: novaSenha })
-    if (signError) { setMsg('Erro: ' + signError.message); setSalvando(false); return }
+    if (signError) { setMsg('Erro: ' + signError.message); setMsgTipo('erro'); setSalvando(false); return }
     const userId = signData?.user?.id
-    if (!userId) { setMsg('Erro ao criar usuário.'); setSalvando(false); return }
+    if (!userId) { setMsg('Erro ao criar usuário.'); setMsgTipo('erro'); setSalvando(false); return }
     const { error: dbError } = await supabase.from('franqueados').insert({
-      nome: novoNome, unidade: novaUnidade, email: novoEmail, user_id: userId, is_admin: false
+      nome: novoNome, unidade: novaUnidade, email: novoEmail, user_id: userId, is_admin: false, status: novoStatus
     })
-    if (dbError) { setMsg('Erro ao salvar franqueado.'); setSalvando(false); return }
+    if (dbError) { setMsg('Erro ao salvar: ' + dbError.message); setMsgTipo('erro'); setSalvando(false); return }
     setMsg('Franqueado criado com sucesso!')
-    setNovoNome(''); setNovaUnidade(''); setNovoEmail(''); setNovaSenha('')
+    setMsgTipo('ok')
+    setNovoNome(''); setNovaUnidade(''); setNovoEmail(''); setNovaSenha(''); setNovoStatus('implantacao')
     setModalAberto(false)
     carregarDados()
     setSalvando(false)
   }
 
+  async function alterarStatus(id, novoSt) {
+    await supabase.from('franqueados').update({ status: novoSt }).eq('id', id)
+    setFranqueados(prev => prev.map(f => f.id === id ? { ...f, status: novoSt } : f))
+  }
+
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Carregando...</div>
+
+  const ativos = franqueados.filter(f => f.status === 'ativo' || f.status === 'implantacao')
+  const inativos = franqueados.filter(f => f.status === 'suspenso' || f.status === 'cancelado')
 
   const s = {
     wrap: { fontFamily: "'Segoe UI', sans-serif", maxWidth: 1100, margin: '0 auto', padding: '24px 16px' },
-    topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
+    topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 },
     title: { fontSize: 20, fontWeight: 700, color: '#1a1a1a' },
     subtitle: { fontSize: 13, color: '#888', marginTop: 2 },
     btn: { fontSize: 12, padding: '7px 14px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer' },
@@ -115,7 +139,56 @@ function PainelMaster({ onLogout }) {
     table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
     th: { background: '#f9f9f9', color: '#888', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid #eee' },
     td: { padding: '12px 14px', borderBottom: '1px solid #f0f0f0', color: '#1a1a1a' },
-    sectionLabel: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#888', marginBottom: 12 },
+  }
+
+  function TabelaFranqueados({ lista }) {
+    return (
+      <div style={{ border: '1px solid #eee', borderRadius: 12, overflow: 'hidden' }}>
+        <table style={s.table}>
+          <thead>
+            <tr>
+              <th style={s.th}>Unidade</th>
+              <th style={s.th}>Responsável</th>
+              <th style={s.th}>Email</th>
+              <th style={s.th}>Status</th>
+              <th style={s.th}>Leads</th>
+              <th style={s.th}>Matrículas</th>
+              <th style={s.th}>Conversão</th>
+              <th style={s.th}>Receita</th>
+              <th style={s.th}>Alterar status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map(f => {
+              const fl = leads.filter(l => l.franqueado_id === f.id)
+              const fm = fl.filter(l => l.status === 'matriculou')
+              const fr = fl.reduce((s, l) => s + (parseFloat(l.mensalidade) || 0), 0)
+              return (
+                <tr key={f.id}>
+                  <td style={{ ...s.td, fontWeight: 600 }}>{f.unidade}</td>
+                  <td style={s.td}>{f.nome}</td>
+                  <td style={{ ...s.td, color: '#888', fontSize: 12 }}>{f.email}</td>
+                  <td style={s.td}><BadgeFranqueado status={f.status} /></td>
+                  <td style={s.td}>{fl.length}</td>
+                  <td style={{ ...s.td, color: '#3B6D11', fontWeight: 600 }}>{fm.length}</td>
+                  <td style={s.td}>{pct(fm.length, fl.length)}%</td>
+                  <td style={{ ...s.td, color: '#3B6D11' }}>R$ {fr.toLocaleString('pt-BR')}</td>
+                  <td style={s.td}>
+                    <select value={f.status} onChange={e => alterarStatus(f.id, e.target.value)}
+                      style={{ fontSize: 12, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer', outline: 'none' }}>
+                      {STATUS_FRANQUEADO.map(st => <option key={st.val} value={st.val}>{st.label}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              )
+            })}
+            {lista.length === 0 && (
+              <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: '#aaa', padding: 32 }}>Nenhum franqueado nessa lista.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    )
   }
 
   return (
@@ -130,52 +203,29 @@ function PainelMaster({ onLogout }) {
           <button style={s.btn} onClick={onLogout}>Sair</button>
         </div>
       </div>
-      {msg && <div style={{ fontSize: 13, color: '#27500A', background: '#EAF3DE', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{msg}</div>}
+
+      {msg && <div style={{ fontSize: 13, color: msgTipo === 'ok' ? '#27500A' : '#A32D2D', background: msgTipo === 'ok' ? '#EAF3DE' : '#FCEBEB', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{msg}</div>}
+
       <div style={s.statsGrid}>
-        <div style={s.stat}><div style={s.statLabel}>Total de franqueados</div><div style={s.statVal}>{franqueados.length}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Franqueados ativos</div><div style={s.statVal}>{ativos.length}</div></div>
         <div style={s.stat}><div style={s.statLabel}>Total de leads</div><div style={{ ...s.statVal, color: '#185FA5' }}>{leads.length}</div></div>
         <div style={s.stat}><div style={s.statLabel}>Total de matrículas</div><div style={{ ...s.statVal, color: '#3B6D11' }}>{leads.filter(l => l.status === 'matriculou').length}</div></div>
       </div>
-      <div style={s.sectionLabel}>Franqueados</div>
-      <div style={{ border: '1px solid #eee', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>Unidade</th>
-              <th style={s.th}>Responsável</th>
-              <th style={s.th}>Email</th>
-              <th style={s.th}>Leads</th>
-              <th style={s.th}>Matrículas</th>
-              <th style={s.th}>Conversão</th>
-              <th style={s.th}>Receita</th>
-            </tr>
-          </thead>
-          <tbody>
-            {franqueados.map(f => {
-              const fl = leads.filter(l => l.franqueado_id === f.id)
-              const fm = fl.filter(l => l.status === 'matriculou')
-              const fr = fl.reduce((s, l) => s + (parseFloat(l.mensalidade) || 0), 0)
-              return (
-                <tr key={f.id}>
-                  <td style={{ ...s.td, fontWeight: 600 }}>{f.unidade}</td>
-                  <td style={s.td}>{f.nome}</td>
-                  <td style={{ ...s.td, color: '#888' }}>{f.email}</td>
-                  <td style={s.td}>{fl.length}</td>
-                  <td style={{ ...s.td, color: '#3B6D11', fontWeight: 600 }}>{fm.length}</td>
-                  <td style={s.td}>{pct(fm.length, fl.length)}%</td>
-                  <td style={{ ...s.td, color: '#3B6D11' }}>R$ {fr.toLocaleString('pt-BR')}</td>
-                </tr>
-              )
-            })}
-            {franqueados.length === 0 && (
-              <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#aaa', padding: 32 }}>Nenhum franqueado ainda.</td></tr>
-            )}
-          </tbody>
-        </table>
+
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+        {[{ val: 'ativos', label: `Ativos e em implantação (${ativos.length})` }, { val: 'inativos', label: `Inativos (${inativos.length})` }].map(tab => (
+          <button key={tab.val} onClick={() => setAbaAtiva(tab.val)}
+            style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: abaAtiva === tab.val ? 'none' : '1px solid #ddd', background: abaAtiva === tab.val ? '#185FA5' : '#fff', color: abaAtiva === tab.val ? '#fff' : '#1a1a1a', cursor: 'pointer' }}>
+            {tab.label}
+          </button>
+        ))}
       </div>
+
+      <TabelaFranqueados lista={abaAtiva === 'ativos' ? ativos : inativos} />
+
       {modalAberto && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: 360, border: '1px solid #eee' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: 380, border: '1px solid #eee' }}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Novo franqueado</div>
             <form onSubmit={adicionarFranqueado}>
               {[
@@ -190,6 +240,13 @@ function PainelMaster({ onLogout }) {
                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
                 </div>
               ))}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Status inicial</label>
+                <select value={novoStatus} onChange={e => setNovoStatus(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
+                  {STATUS_FRANQUEADO.map(st => <option key={st.val} value={st.val}>{st.label}</option>)}
+                </select>
+              </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
                 <button type="button" style={s.btn} onClick={() => setModalAberto(false)}>Cancelar</button>
                 <button type="submit" disabled={salvando} style={s.btnPrimary}>{salvando ? 'Salvando...' : 'Criar franqueado'}</button>
