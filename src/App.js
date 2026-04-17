@@ -18,11 +18,23 @@ const STATUS_FRANQUEADO = [
   { val: 'cancelado',   label: 'Cancelado',        bg: '#FCEBEB', color: '#791F1F' },
 ]
 
+const STATUS_ONBOARDING = [
+  { val: 'Onboarding recebido', bg: '#E6F1FB', color: '#0C447C' },
+  { val: 'Em configuração',     bg: '#FAEEDA', color: '#633806' },
+  { val: 'Ativo',               bg: '#EAF3DE', color: '#27500A' },
+  { val: 'Cancelado',           bg: '#FCEBEB', color: '#791F1F' },
+]
+
 function pct(a, b) { return b > 0 ? Math.round((a / b) * 100) : 0 }
 
 function BadgeFranqueado({ status }) {
   const s = STATUS_FRANQUEADO.find(x => x.val === status) || STATUS_FRANQUEADO[0]
   return <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 99, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{s.label}</span>
+}
+
+function BadgeOnboarding({ status }) {
+  const s = STATUS_ONBOARDING.find(x => x.val === status) || STATUS_ONBOARDING[0]
+  return <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 99, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{status}</span>
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────
@@ -71,6 +83,229 @@ function LoginPage() {
   )
 }
 
+// ─── Aba Onboarding ───────────────────────────────────────────────────────────
+function AbaOnboarding() {
+  const [onboardings, setOnboardings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editando, setEditando] = useState(null)
+  const [promptModal, setPromptModal] = useState(null)
+  const [promptTexto, setPromptTexto] = useState('')
+  const [gerandoPrompt, setGerandoPrompt] = useState(false)
+
+  useEffect(() => { carregarOnboardings() }, [])
+
+  async function carregarOnboardings() {
+    const { data } = await supabase.from('onboardings').select('*').order('created_at', { ascending: false })
+    setOnboardings(data || [])
+    setLoading(false)
+  }
+
+  async function salvarEdicao() {
+    await supabase.from('onboardings').update(editando).eq('id', editando.id)
+    setOnboardings(prev => prev.map(o => o.id === editando.id ? editando : o))
+    setEditando(null)
+  }
+
+  async function gerarPrompt(ob) {
+    setPromptModal(ob)
+    setPromptTexto('')
+    setGerandoPrompt(true)
+
+    const userMsg = `Você é especialista em criar prompts para agentes de IA de agendamento. 
+Crie um prompt completo e detalhado para a Lia, agente de agendamento da KNN Idiomas, com base nos seguintes dados do onboarding:
+
+DADOS DA UNIDADE:
+- Nome: ${ob.nome}
+- Cidade: ${ob.cidade}
+- Endereço: ${ob.endereco || 'Não informado'}
+- Coordenador: ${ob.coordenador || 'Não informado'}
+- Instagram: ${ob.instagram || 'Não informado'}
+
+CONTATOS:
+- WhatsApp do responsável: ${ob.wa_dono}
+- WhatsApp da Lia: ${ob.wa_lia}
+
+HORÁRIOS DE ATENDIMENTO:
+- Segunda a Sexta: ${ob.horario_semana || 'Não informado'}
+- Sábado: ${ob.horario_sabado || 'Não informado'}
+- Domingo: ${ob.horario_domingo || 'Não informado'}
+- Turmas disponíveis: ${ob.turmas || 'Não informado'}
+
+IDIOMAS E CURSOS:
+- Idiomas: ${ob.idiomas ? ob.idiomas.join(', ') : 'Não informado'}
+- Curso intensivo: ${ob.intensivo ? 'Sim' : 'Não'}
+- Idade mínima: ${ob.idade_minima || 'Não informado'}
+- Parcerias: ${ob.parcerias || 'Nenhuma'}
+- Transporte/Van: ${ob.transporte || 'Não oferece'}
+- KNN AT Home: ${ob.at_home ? 'Sim' : 'Não'}
+
+CONFIGURAÇÕES DA LIA:
+- Tom de voz: ${ob.tom}
+- Autoriza informar faixa de preço: ${ob.autoriza_preco ? 'Sim (R$280 a R$400)' : 'Não'}
+- Pode oferecer videochamada: ${ob.videochamada ? 'Sim' : 'Não'}
+- Volume de leads/mês: ${ob.volume}
+
+OBSERVAÇÕES DO FRANQUEADO:
+${ob.obs || 'Nenhuma observação adicional'}
+
+Crie um prompt completo no mesmo estilo e estrutura do exemplo abaixo, adaptando todos os dados para essa unidade específica. O prompt deve incluir: identidade, objetivo, endereços, regras de resposta, fluxo da conversa passo a passo, informações sobre o curso, horários de atendimento, feriados relevantes da cidade, objeções comuns e tag de agendamento.`
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4000,
+          messages: [{ role: 'user', content: userMsg }]
+        })
+      })
+      const data = await response.json()
+      const texto = data.content?.map(c => c.text || '').join('') || 'Erro ao gerar prompt.'
+      setPromptTexto(texto)
+    } catch (err) {
+      setPromptTexto('Erro ao conectar com a API. Tente novamente.')
+    }
+    setGerandoPrompt(false)
+  }
+
+  const s = {
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+    th: { background: '#f9f9f9', color: '#888', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid #eee' },
+    td: { padding: '12px 14px', borderBottom: '1px solid #f0f0f0', color: '#1a1a1a', verticalAlign: 'middle' },
+    btn: { fontSize: 12, padding: '5px 10px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer' },
+    btnBlue: { fontSize: 12, padding: '5px 10px', border: 'none', borderRadius: 6, background: '#185FA5', color: '#fff', cursor: 'pointer' },
+    input: { width: '100%', padding: '7px 10px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' },
+    label: { fontSize: 12, color: '#888', display: 'block', marginBottom: 4 },
+  }
+
+  if (loading) return <div style={{ padding: 32, color: '#888', textAlign: 'center' }}>Carregando onboardings...</div>
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#888' }}>
+          Onboardings KNN ({onboardings.length})
+        </div>
+      </div>
+
+      <div style={{ border: '1px solid #eee', borderRadius: 12, overflow: 'hidden' }}>
+        <table style={s.table}>
+          <thead>
+            <tr>
+              <th style={s.th}>Unidade</th>
+              <th style={s.th}>Cidade</th>
+              <th style={s.th}>Responsável</th>
+              <th style={s.th}>WhatsApp Lia</th>
+              <th style={s.th}>Tom</th>
+              <th style={s.th}>Volume</th>
+              <th style={s.th}>Status</th>
+              <th style={s.th}>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {onboardings.map(ob => (
+              <tr key={ob.id}>
+                <td style={{ ...s.td, fontWeight: 600 }}>{ob.nome}</td>
+                <td style={s.td}>{ob.cidade}</td>
+                <td style={s.td}>{ob.responsavel}</td>
+                <td style={{ ...s.td, fontSize: 12, color: '#888' }}>{ob.wa_lia}</td>
+                <td style={{ ...s.td, fontSize: 12 }}>{ob.tom}</td>
+                <td style={{ ...s.td, fontSize: 12 }}>{ob.volume}</td>
+                <td style={s.td}><BadgeOnboarding status={ob.status} /></td>
+                <td style={s.td}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button style={s.btn} onClick={() => setEditando({ ...ob })}>Editar</button>
+                    <button style={s.btnBlue} onClick={() => gerarPrompt(ob)}>Gerar prompt</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {onboardings.length === 0 && (
+              <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color: '#aaa', padding: 32 }}>
+                Nenhum onboarding ainda. Os dados chegam automaticamente pelo formulário.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal Editar */}
+      {editando && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Editar onboarding — {editando.nome}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {[
+                { label: 'Nome da unidade', key: 'nome' },
+                { label: 'Cidade', key: 'cidade' },
+                { label: 'Responsável', key: 'responsavel' },
+                { label: 'Coordenador', key: 'coordenador' },
+                { label: 'WhatsApp Responsável', key: 'wa_dono' },
+                { label: 'WhatsApp da Lia', key: 'wa_lia' },
+                { label: 'Endereço', key: 'endereco' },
+                { label: 'Instagram', key: 'instagram' },
+                { label: 'Horário Seg-Sex', key: 'horario_semana' },
+                { label: 'Horário Sábado', key: 'horario_sabado' },
+                { label: 'Tom de voz', key: 'tom' },
+                { label: 'Volume de leads', key: 'volume' },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={s.label}>{f.label}</label>
+                  <input style={s.input} value={editando[f.key] || ''} onChange={e => setEditando({ ...editando, [f.key]: e.target.value })} />
+                </div>
+              ))}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={s.label}>Status</label>
+                <select style={{ ...s.input }} value={editando.status} onChange={e => setEditando({ ...editando, status: e.target.value })}>
+                  {STATUS_ONBOARDING.map(st => <option key={st.val} value={st.val}>{st.val}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={s.label}>Observações</label>
+                <textarea style={{ ...s.input, resize: 'vertical', minHeight: 80 }} value={editando.obs || ''} onChange={e => setEditando({ ...editando, obs: e.target.value })} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button style={s.btn} onClick={() => setEditando(null)}>Cancelar</button>
+              <button style={s.btnBlue} onClick={salvarEdicao}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Prompt */}
+      {promptModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>Prompt da Lia — {promptModal.nome}</div>
+              <button style={s.btn} onClick={() => setPromptModal(null)}>Fechar</button>
+            </div>
+            {gerandoPrompt ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: 14 }}>
+                Gerando prompt com IA... aguarde 🤖
+              </div>
+            ) : (
+              <>
+                <textarea
+                  style={{ flex: 1, minHeight: 400, padding: 12, border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'monospace', resize: 'vertical', outline: 'none' }}
+                  value={promptTexto}
+                  onChange={e => setPromptTexto(e.target.value)}
+                />
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                  <button style={s.btn} onClick={() => { navigator.clipboard.writeText(promptTexto); alert('Prompt copiado!') }}>Copiar</button>
+                  <button style={s.btnBlue} onClick={() => gerarPrompt(promptModal)}>Regerar</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Painel Master ────────────────────────────────────────────────────────────
 function PainelMaster({ onLogout }) {
   const [franqueados, setFranqueados] = useState([])
@@ -86,6 +321,7 @@ function PainelMaster({ onLogout }) {
   const [msg, setMsg] = useState('')
   const [msgTipo, setMsgTipo] = useState('ok')
   const [abaAtiva, setAbaAtiva] = useState('ativos')
+  const [tabPrincipal, setTabPrincipal] = useState('franqueados')
 
   useEffect(() => { carregarDados() }, [])
 
@@ -126,11 +362,9 @@ function PainelMaster({ onLogout }) {
 
   const ativos = franqueados.filter(f => f.status === 'ativo' || f.status === 'implantacao')
   const inativos = franqueados.filter(f => f.status === 'suspenso' || f.status === 'cancelado')
-  const totalLeads = leads.length
-  const totalMatr = leads.filter(l => l.status === 'matriculou').length
 
   const s = {
-    wrap: { fontFamily: "'Segoe UI', sans-serif", maxWidth: 1100, margin: '0 auto', padding: '24px 16px' },
+    wrap: { fontFamily: "'Segoe UI', sans-serif", maxWidth: 1200, margin: '0 auto', padding: '24px 16px' },
     topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 },
     title: { fontSize: 20, fontWeight: 700, color: '#1a1a1a' },
     subtitle: { fontSize: 13, color: '#888', marginTop: 2 },
@@ -140,11 +374,9 @@ function PainelMaster({ onLogout }) {
     stat: { background: '#f5f5f5', borderRadius: 8, padding: '14px 16px' },
     statLabel: { fontSize: 12, color: '#888', marginBottom: 4 },
     statVal: { fontSize: 24, fontWeight: 700 },
-    sectionLabel: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#888', marginBottom: 12 },
     table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
     th: { background: '#f9f9f9', color: '#888', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid #eee' },
     td: { padding: '12px 14px', borderBottom: '1px solid #f0f0f0', color: '#1a1a1a' },
-    tabBar: { display: 'flex', gap: 4, marginBottom: 16 },
   }
 
   function TabelaFranqueados({ lista }) {
@@ -181,21 +413,18 @@ function PainelMaster({ onLogout }) {
                   <td style={s.td}>{pct(fm.length, fl.length)}%</td>
                   <td style={{ ...s.td, color: '#3B6D11' }}>R$ {fr.toLocaleString('pt-BR')}</td>
                   <td style={s.td}>
-                    <select
-                      value={f.status}
-                      onChange={e => alterarStatus(f.id, e.target.value)}
-                      style={{ fontSize: 12, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer', outline: 'none' }}
-                    >
+                    <select value={f.status} onChange={e => alterarStatus(f.id, e.target.value)}
+                      style={{ fontSize: 12, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer', outline: 'none' }}>
                       {STATUS_FRANQUEADO.map(st => <option key={st.val} value={st.val}>{st.label}</option>)}
                     </select>
                   </td>
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{f.id.substring(0, 8)}...</span>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(f.id); alert('ID copiado! Cole no workflow da Lia.') }}
-                        style={{ fontSize: 10, padding: '2px 8px', border: '1px solid #ddd', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                      >copiar</button>
+                      <button onClick={() => { navigator.clipboard.writeText(f.id); alert('ID copiado!') }}
+                        style={{ fontSize: 10, padding: '2px 8px', border: '1px solid #ddd', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        copiar
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -218,36 +447,56 @@ function PainelMaster({ onLogout }) {
           <div style={s.subtitle}>Visão geral de todas as unidades</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={s.btnPrimary} onClick={() => setModalAberto(true)}>+ Novo franqueado</button>
+          {tabPrincipal === 'franqueados' && <button style={s.btnPrimary} onClick={() => setModalAberto(true)}>+ Novo franqueado</button>}
           <button style={s.btn} onClick={onLogout}>Sair</button>
         </div>
       </div>
 
-      {msg && (
-        <div style={{ fontSize: 13, color: msgTipo === 'ok' ? '#27500A' : '#A32D2D', background: msgTipo === 'ok' ? '#EAF3DE' : '#FCEBEB', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>
-          {msg}
-        </div>
-      )}
-
-      <div style={s.statsGrid}>
-        <div style={s.stat}><div style={s.statLabel}>Franqueados ativos</div><div style={s.statVal}>{ativos.length}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Total de leads</div><div style={{ ...s.statVal, color: '#185FA5' }}>{totalLeads}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Total de matrículas</div><div style={{ ...s.statVal, color: '#3B6D11' }}>{totalMatr}</div></div>
-      </div>
-
-      <div style={s.tabBar}>
+      {/* Tabs principais */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #eee', paddingBottom: 0 }}>
         {[
-          { val: 'ativos', label: `Ativos e em implantação (${ativos.length})` },
-          { val: 'inativos', label: `Inativos (${inativos.length})` },
+          { val: 'franqueados', label: 'Franqueados' },
+          { val: 'onboarding', label: 'Onboardings KNN' },
         ].map(tab => (
-          <button key={tab.val} onClick={() => setAbaAtiva(tab.val)}
-            style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: abaAtiva === tab.val ? 'none' : '1px solid #ddd', background: abaAtiva === tab.val ? '#185FA5' : '#fff', color: abaAtiva === tab.val ? '#fff' : '#1a1a1a', cursor: 'pointer', fontWeight: abaAtiva === tab.val ? 600 : 400 }}>
+          <button key={tab.val} onClick={() => setTabPrincipal(tab.val)}
+            style={{
+              fontSize: 13, padding: '8px 16px', borderRadius: '8px 8px 0 0',
+              border: tabPrincipal === tab.val ? '1px solid #eee' : 'none',
+              borderBottom: tabPrincipal === tab.val ? '1px solid #fff' : 'none',
+              background: tabPrincipal === tab.val ? '#fff' : 'transparent',
+              color: tabPrincipal === tab.val ? '#185FA5' : '#888',
+              cursor: 'pointer', fontWeight: tabPrincipal === tab.val ? 600 : 400,
+              marginBottom: tabPrincipal === tab.val ? -1 : 0
+            }}>
             {tab.label}
           </button>
         ))}
       </div>
 
-      <TabelaFranqueados lista={abaAtiva === 'ativos' ? ativos : inativos} />
+      {tabPrincipal === 'franqueados' && (
+        <>
+          {msg && <div style={{ fontSize: 13, color: msgTipo === 'ok' ? '#27500A' : '#A32D2D', background: msgTipo === 'ok' ? '#EAF3DE' : '#FCEBEB', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{msg}</div>}
+
+          <div style={s.statsGrid}>
+            <div style={s.stat}><div style={s.statLabel}>Franqueados ativos</div><div style={s.statVal}>{ativos.length}</div></div>
+            <div style={s.stat}><div style={s.statLabel}>Total de leads</div><div style={{ ...s.statVal, color: '#185FA5' }}>{leads.length}</div></div>
+            <div style={s.stat}><div style={s.statLabel}>Total de matrículas</div><div style={{ ...s.statVal, color: '#3B6D11' }}>{leads.filter(l => l.status === 'matriculou').length}</div></div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+            {[{ val: 'ativos', label: `Ativos e em implantação (${ativos.length})` }, { val: 'inativos', label: `Inativos (${inativos.length})` }].map(tab => (
+              <button key={tab.val} onClick={() => setAbaAtiva(tab.val)}
+                style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: abaAtiva === tab.val ? 'none' : '1px solid #ddd', background: abaAtiva === tab.val ? '#185FA5' : '#fff', color: abaAtiva === tab.val ? '#fff' : '#1a1a1a', cursor: 'pointer' }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <TabelaFranqueados lista={abaAtiva === 'ativos' ? ativos : inativos} />
+        </>
+      )}
+
+      {tabPrincipal === 'onboarding' && <AbaOnboarding />}
 
       {modalAberto && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
