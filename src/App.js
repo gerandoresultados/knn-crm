@@ -25,6 +25,7 @@ function BadgeFranqueado({ status }) {
   return <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 99, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{s.label}</span>
 }
 
+// ─── Login ────────────────────────────────────────────────────────────────────
 function LoginPage() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
@@ -70,6 +71,7 @@ function LoginPage() {
   )
 }
 
+// ─── Painel Master ────────────────────────────────────────────────────────────
 function PainelMaster({ onLogout }) {
   const [franqueados, setFranqueados] = useState([])
   const [leads, setLeads] = useState([])
@@ -124,6 +126,8 @@ function PainelMaster({ onLogout }) {
 
   const ativos = franqueados.filter(f => f.status === 'ativo' || f.status === 'implantacao')
   const inativos = franqueados.filter(f => f.status === 'suspenso' || f.status === 'cancelado')
+  const totalLeads = leads.length
+  const totalMatr = leads.filter(l => l.status === 'matriculou').length
 
   const s = {
     wrap: { fontFamily: "'Segoe UI', sans-serif", maxWidth: 1100, margin: '0 auto', padding: '24px 16px' },
@@ -136,9 +140,11 @@ function PainelMaster({ onLogout }) {
     stat: { background: '#f5f5f5', borderRadius: 8, padding: '14px 16px' },
     statLabel: { fontSize: 12, color: '#888', marginBottom: 4 },
     statVal: { fontSize: 24, fontWeight: 700 },
+    sectionLabel: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#888', marginBottom: 12 },
     table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
     th: { background: '#f9f9f9', color: '#888', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid #eee' },
     td: { padding: '12px 14px', borderBottom: '1px solid #f0f0f0', color: '#1a1a1a' },
+    tabBar: { display: 'flex', gap: 4, marginBottom: 16 },
   }
 
   function TabelaFranqueados({ lista }) {
@@ -156,6 +162,7 @@ function PainelMaster({ onLogout }) {
               <th style={s.th}>Conversão</th>
               <th style={s.th}>Receita</th>
               <th style={s.th}>Alterar status</th>
+              <th style={s.th}>ID (Lia)</th>
             </tr>
           </thead>
           <tbody>
@@ -174,16 +181,28 @@ function PainelMaster({ onLogout }) {
                   <td style={s.td}>{pct(fm.length, fl.length)}%</td>
                   <td style={{ ...s.td, color: '#3B6D11' }}>R$ {fr.toLocaleString('pt-BR')}</td>
                   <td style={s.td}>
-                    <select value={f.status} onChange={e => alterarStatus(f.id, e.target.value)}
-                      style={{ fontSize: 12, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer', outline: 'none' }}>
+                    <select
+                      value={f.status}
+                      onChange={e => alterarStatus(f.id, e.target.value)}
+                      style={{ fontSize: 12, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer', outline: 'none' }}
+                    >
                       {STATUS_FRANQUEADO.map(st => <option key={st.val} value={st.val}>{st.label}</option>)}
                     </select>
+                  </td>
+                  <td style={s.td}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{f.id.substring(0, 8)}...</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(f.id); alert('ID copiado! Cole no workflow da Lia.') }}
+                        style={{ fontSize: 10, padding: '2px 8px', border: '1px solid #ddd', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >copiar</button>
+                    </div>
                   </td>
                 </tr>
               )
             })}
             {lista.length === 0 && (
-              <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: '#aaa', padding: 32 }}>Nenhum franqueado nessa lista.</td></tr>
+              <tr><td colSpan={10} style={{ ...s.td, textAlign: 'center', color: '#aaa', padding: 32 }}>Nenhum franqueado nessa lista.</td></tr>
             )}
           </tbody>
         </table>
@@ -204,18 +223,25 @@ function PainelMaster({ onLogout }) {
         </div>
       </div>
 
-      {msg && <div style={{ fontSize: 13, color: msgTipo === 'ok' ? '#27500A' : '#A32D2D', background: msgTipo === 'ok' ? '#EAF3DE' : '#FCEBEB', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{msg}</div>}
+      {msg && (
+        <div style={{ fontSize: 13, color: msgTipo === 'ok' ? '#27500A' : '#A32D2D', background: msgTipo === 'ok' ? '#EAF3DE' : '#FCEBEB', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>
+          {msg}
+        </div>
+      )}
 
       <div style={s.statsGrid}>
         <div style={s.stat}><div style={s.statLabel}>Franqueados ativos</div><div style={s.statVal}>{ativos.length}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Total de leads</div><div style={{ ...s.statVal, color: '#185FA5' }}>{leads.length}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Total de matrículas</div><div style={{ ...s.statVal, color: '#3B6D11' }}>{leads.filter(l => l.status === 'matriculou').length}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Total de leads</div><div style={{ ...s.statVal, color: '#185FA5' }}>{totalLeads}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Total de matrículas</div><div style={{ ...s.statVal, color: '#3B6D11' }}>{totalMatr}</div></div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
-        {[{ val: 'ativos', label: `Ativos e em implantação (${ativos.length})` }, { val: 'inativos', label: `Inativos (${inativos.length})` }].map(tab => (
+      <div style={s.tabBar}>
+        {[
+          { val: 'ativos', label: `Ativos e em implantação (${ativos.length})` },
+          { val: 'inativos', label: `Inativos (${inativos.length})` },
+        ].map(tab => (
           <button key={tab.val} onClick={() => setAbaAtiva(tab.val)}
-            style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: abaAtiva === tab.val ? 'none' : '1px solid #ddd', background: abaAtiva === tab.val ? '#185FA5' : '#fff', color: abaAtiva === tab.val ? '#fff' : '#1a1a1a', cursor: 'pointer' }}>
+            style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: abaAtiva === tab.val ? 'none' : '1px solid #ddd', background: abaAtiva === tab.val ? '#185FA5' : '#fff', color: abaAtiva === tab.val ? '#fff' : '#1a1a1a', cursor: 'pointer', fontWeight: abaAtiva === tab.val ? 600 : 400 }}>
             {tab.label}
           </button>
         ))}
@@ -258,6 +284,8 @@ function PainelMaster({ onLogout }) {
     </div>
   )
 }
+
+// ─── CRM Franqueado ───────────────────────────────────────────────────────────
 function CRMFranqueado({ franqueado, onLogout }) {
   const [leads, setLeads] = useState([])
   const [consultores, setConsultores] = useState([])
@@ -458,6 +486,7 @@ function CRMFranqueado({ franqueado, onLogout }) {
   )
 }
 
+// ─── App Principal ────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(null)
   const [franqueado, setFranqueado] = useState(null)
