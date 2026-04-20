@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
-  'https://eujdxvegcpoicpapuafu.supabase.co',
-  'sb_publishable_xqeCBAVcNP1etWS1Dy7PSQ_M5q4nQTS'
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
 export default async function handler(req, res) {
@@ -30,6 +30,5 @@ export default async function handler(req, res) {
   }).select().single()
 
   if (error) return res.status(500).json({ erro: error.message })
-
   return res.status(201).json({ sucesso: true, lead: data })
 }
