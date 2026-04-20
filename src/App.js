@@ -106,65 +106,21 @@ function AbaOnboarding() {
     setEditando(null)
   }
 
+  // ✅ CORRIGIDO: chama API route segura em vez de Anthropic direto
   async function gerarPrompt(ob) {
     setPromptModal(ob)
     setPromptTexto('')
     setGerandoPrompt(true)
-
-    const userMsg = `Você é especialista em criar prompts para agentes de IA de agendamento. 
-Crie um prompt completo e detalhado para a Lia, agente de agendamento da KNN Idiomas, com base nos seguintes dados do onboarding:
-
-DADOS DA UNIDADE:
-- Nome: ${ob.nome}
-- Cidade: ${ob.cidade}
-- Endereço: ${ob.endereco || 'Não informado'}
-- Coordenador: ${ob.coordenador || 'Não informado'}
-- Instagram: ${ob.instagram || 'Não informado'}
-
-CONTATOS:
-- WhatsApp do responsável: ${ob.wa_dono}
-- WhatsApp da Lia: ${ob.wa_lia}
-
-HORÁRIOS DE ATENDIMENTO:
-- Segunda a Sexta: ${ob.horario_semana || 'Não informado'}
-- Sábado: ${ob.horario_sabado || 'Não informado'}
-- Domingo: ${ob.horario_domingo || 'Não informado'}
-- Turmas disponíveis: ${ob.turmas || 'Não informado'}
-
-IDIOMAS E CURSOS:
-- Idiomas: ${ob.idiomas ? ob.idiomas.join(', ') : 'Não informado'}
-- Curso intensivo: ${ob.intensivo ? 'Sim' : 'Não'}
-- Idade mínima: ${ob.idade_minima || 'Não informado'}
-- Parcerias: ${ob.parcerias || 'Nenhuma'}
-- Transporte/Van: ${ob.transporte || 'Não oferece'}
-- KNN AT Home: ${ob.at_home ? 'Sim' : 'Não'}
-
-CONFIGURAÇÕES DA LIA:
-- Tom de voz: ${ob.tom}
-- Autoriza informar faixa de preço: ${ob.autoriza_preco ? 'Sim (R$280 a R$400)' : 'Não'}
-- Pode oferecer videochamada: ${ob.videochamada ? 'Sim' : 'Não'}
-- Volume de leads/mês: ${ob.volume}
-
-OBSERVAÇÕES DO FRANQUEADO:
-${ob.obs || 'Nenhuma observação adicional'}
-
-Crie um prompt completo no mesmo estilo e estrutura do exemplo abaixo, adaptando todos os dados para essa unidade específica. O prompt deve incluir: identidade, objetivo, endereços, regras de resposta, fluxo da conversa passo a passo, informações sobre o curso, horários de atendimento, feriados relevantes da cidade, objeções comuns e tag de agendamento.`
-
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/gerar-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
-          messages: [{ role: 'user', content: userMsg }]
-        })
+        body: JSON.stringify({ ob })
       })
       const data = await response.json()
-      const texto = data.content?.map(c => c.text || '').join('') || 'Erro ao gerar prompt.'
-      setPromptTexto(texto)
+      setPromptTexto(data.prompt || 'Erro ao gerar.')
     } catch (err) {
-      setPromptTexto('Erro ao conectar com a API. Tente novamente.')
+      setPromptTexto('Erro de conexão.')
     }
     setGerandoPrompt(false)
   }
@@ -230,7 +186,6 @@ Crie um prompt completo no mesmo estilo e estrutura do exemplo abaixo, adaptando
         </table>
       </div>
 
-      {/* Modal Editar */}
       {editando && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto' }}>
@@ -274,7 +229,6 @@ Crie um prompt completo no mesmo estilo e estrutura do exemplo abaixo, adaptando
         </div>
       )}
 
-      {/* Modal Prompt */}
       {promptModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
@@ -333,23 +287,36 @@ function PainelMaster({ onLogout }) {
     setLoading(false)
   }
 
+  // ✅ CORRIGIDO: usa API route segura, não desloga o admin
   async function adicionarFranqueado(e) {
     e.preventDefault()
     setSalvando(true)
     setMsg('')
-    const { data: signData, error: signError } = await supabase.auth.signUp({ email: novoEmail, password: novaSenha })
-    if (signError) { setMsg('Erro: ' + signError.message); setMsgTipo('erro'); setSalvando(false); return }
-    const userId = signData?.user?.id
-    if (!userId) { setMsg('Erro ao criar usuário.'); setMsgTipo('erro'); setSalvando(false); return }
-    const { error: dbError } = await supabase.from('franqueados').insert({
-      nome: novoNome, unidade: novaUnidade, email: novoEmail, user_id: userId, is_admin: false, status: novoStatus
-    })
-    if (dbError) { setMsg('Erro ao salvar: ' + dbError.message); setMsgTipo('erro'); setSalvando(false); return }
-    setMsg('Franqueado criado com sucesso!')
-    setMsgTipo('ok')
-    setNovoNome(''); setNovaUnidade(''); setNovoEmail(''); setNovaSenha(''); setNovoStatus('implantacao')
-    setModalAberto(false)
-    carregarDados()
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/criar-franqueado', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ nome: novoNome, unidade: novaUnidade, email: novoEmail, senha: novaSenha, status: novoStatus })
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        setMsg('Erro: ' + (result.error || 'Falha ao criar franqueado'))
+        setMsgTipo('erro')
+      } else {
+        setMsg('Franqueado criado com sucesso!')
+        setMsgTipo('ok')
+        setNovoNome(''); setNovaUnidade(''); setNovoEmail(''); setNovaSenha(''); setNovoStatus('implantacao')
+        setModalAberto(false)
+        carregarDados()
+      }
+    } catch (err) {
+      setMsg('Erro: ' + err.message)
+      setMsgTipo('erro')
+    }
     setSalvando(false)
   }
 
@@ -452,7 +419,6 @@ function PainelMaster({ onLogout }) {
         </div>
       </div>
 
-      {/* Tabs principais */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #eee', paddingBottom: 0 }}>
         {[
           { val: 'franqueados', label: 'Franqueados' },
@@ -476,13 +442,11 @@ function PainelMaster({ onLogout }) {
       {tabPrincipal === 'franqueados' && (
         <>
           {msg && <div style={{ fontSize: 13, color: msgTipo === 'ok' ? '#27500A' : '#A32D2D', background: msgTipo === 'ok' ? '#EAF3DE' : '#FCEBEB', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{msg}</div>}
-
           <div style={s.statsGrid}>
             <div style={s.stat}><div style={s.statLabel}>Franqueados ativos</div><div style={s.statVal}>{ativos.length}</div></div>
             <div style={s.stat}><div style={s.statLabel}>Total de leads</div><div style={{ ...s.statVal, color: '#185FA5' }}>{leads.length}</div></div>
             <div style={s.stat}><div style={s.statLabel}>Total de matrículas</div><div style={{ ...s.statVal, color: '#3B6D11' }}>{leads.filter(l => l.status === 'matriculou').length}</div></div>
           </div>
-
           <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
             {[{ val: 'ativos', label: `Ativos e em implantação (${ativos.length})` }, { val: 'inativos', label: `Inativos (${inativos.length})` }].map(tab => (
               <button key={tab.val} onClick={() => setAbaAtiva(tab.val)}
@@ -491,7 +455,6 @@ function PainelMaster({ onLogout }) {
               </button>
             ))}
           </div>
-
           <TabelaFranqueados lista={abaAtiva === 'ativos' ? ativos : inativos} />
         </>
       )}
