@@ -262,12 +262,101 @@ function LoginPage() {
   )
 }
 
+// ─── ABA SOLICITAÇÕES ────────────────────────────────────────────────────────
+function AbaSolicitacoes({ solicitacoes, setSolicitacoes }) {
+  const urgMap = {
+    alta:  { label:'Alta',  bg:C.redLight,   color:C.red },
+    media: { label:'Média', bg:C.amberLight, color:C.amber },
+    baixa: { label:'Baixa', bg:C.greenLight, color:C.green },
+  }
+  const pendentes = solicitacoes.filter(s => s.status === 'pendente').length
+
+  async function marcarAplicado(id) {
+    await supabase.from('solicitacoes').update({ status:'aplicado' }).eq('id', id)
+    setSolicitacoes(prev => prev.map(s => s.id === id ? { ...s, status:'aplicado' } : s))
+  }
+
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+        <div style={{ fontSize:13, color:C.gray500 }}>
+          Pedidos dos franqueados — aplicados toda <strong>segunda e quinta-feira</strong>
+        </div>
+        {pendentes > 0 && (
+          <span style={{ fontSize:12, padding:'4px 12px', borderRadius:99, background:C.amberLight, color:C.amber, fontWeight:700 }}>
+            {pendentes} pendente{pendentes > 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+
+      {solicitacoes.length === 0 && (
+        <div style={{ textAlign:'center', padding:60, color:C.gray500, fontSize:13, background:C.surface, borderRadius:14, border:`1px solid ${C.border}` }}>
+          Nenhuma solicitação ainda.
+        </div>
+      )}
+
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {solicitacoes.map(s => {
+          const urg = urgMap[s.urgencia] || urgMap.baixa
+          const isPendente = s.status === 'pendente'
+          return (
+            <div key={s.id} style={{ background:C.surface, border:`1px solid ${isPendente && s.urgencia === 'alta' ? '#F5C2C2' : C.border}`, borderRadius:14, padding:20 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
+                <span style={{ fontSize:14, fontWeight:700 }}>{s.unidade}</span>
+                <span style={{ fontSize:12, color:C.gray500 }}>· {s.responsavel}</span>
+                <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
+                  <Badge label={urg.label} bg={urg.bg} color={urg.color} />
+                  <Badge
+                    label={isPendente ? 'Pendente' : 'Aplicado'}
+                    bg={isPendente ? C.blueLight : C.greenLight}
+                    color={isPendente ? C.blue : C.green}
+                  />
+                  <span style={{ fontSize:11, color:C.gray500 }}>
+                    {new Date(s.created_at).toLocaleDateString('pt-BR')}
+                  </span>
+                </div>
+              </div>
+              {s.tipos && s.tipos.length > 0 && (
+                <div style={{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap' }}>
+                  {s.tipos.map(t => (
+                    <span key={t} style={{ fontSize:11, padding:'3px 10px', borderRadius:99, background:C.bg, color:C.gray700, border:`1px solid ${C.border}`, fontWeight:500 }}>{t}</span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                {[['Como está hoje', s.como_hoje], ['Como quer que fique', s.como_quer], ['Exemplo', s.exemplo], ['Sugestão', s.sugestao]]
+                  .filter(([, v]) => v)
+                  .map(([l, v]) => (
+                    <div key={l} style={{ background:C.bg, borderRadius:9, padding:'10px 12px' }}>
+                      <div style={{ fontSize:10, color:C.gray500, fontWeight:600, marginBottom:3, textTransform:'uppercase', letterSpacing:'0.04em' }}>{l}</div>
+                      <div style={{ fontSize:12, color:C.gray700, lineHeight:1.5 }}>{v}</div>
+                    </div>
+                  ))}
+              </div>
+              {isPendente && (
+                <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
+                  <button onClick={() => marcarAplicado(s.id)}
+                    style={{ fontSize:12, padding:'7px 16px', border:'none', borderRadius:9, background:ACCENT, color:'#fff', cursor:'pointer', fontWeight:600 }}>
+                    ✓ Marcar como aplicado
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── PAINEL MASTER ────────────────────────────────────────────────────────────
 function PainelMaster({ onLogout }) {
   const [franqueados, setFranqueados] = useState([])
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [tabF, setTabF] = useState('todos')
+  const [tabPrincipal, setTabPrincipal] = useState('franqueados')
+  const [solicitacoes, setSolicitacoes] = useState([])
   const [modalAberto, setModalAberto] = useState(false)
   const [editandoFranq, setEditandoFranq] = useState(null)
   const [relatorio, setRelatorio] = useState(null)
@@ -286,8 +375,10 @@ function PainelMaster({ onLogout }) {
   async function carregarDados() {
     const { data: f } = await supabase.from('franqueados').select('*').eq('is_admin', false)
     const { data: l } = await supabase.from('leads').select('*')
+    const { data: s } = await supabase.from('solicitacoes').select('*').order('created_at', { ascending: false })
     setFranqueados(f || [])
     setLeads(l || [])
+    setSolicitacoes(s || [])
     setLoading(false)
   }
 
@@ -341,6 +432,26 @@ function PainelMaster({ onLogout }) {
 
       {msg && <div style={{ fontSize:13, color:msgTipo === 'ok' ? C.green : C.red, background:msgTipo === 'ok' ? C.greenLight : C.redLight, padding:'10px 14px', borderRadius:8, marginBottom:16 }}>{msg}</div>}
 
+      {/* Tabs principais */}
+      <div style={{ display:'flex', gap:4, marginBottom:24, borderBottom:`1px solid ${C.border}` }}>
+        {[
+          { val:'franqueados', label:'Franqueados' },
+          { val:'solicitacoes', label:`Solicitações${solicitacoes.filter(s=>s.status==='pendente').length > 0 ? ` (${solicitacoes.filter(s=>s.status==='pendente').length})` : ''}` },
+        ].map(tab => (
+          <button key={tab.val} onClick={() => setTabPrincipal(tab.val)}
+            style={{ fontSize:13, padding:'8px 16px', border:'none', background:'transparent',
+              color: tabPrincipal === tab.val ? ACCENT : C.gray500,
+              cursor:'pointer', fontWeight: tabPrincipal === tab.val ? 600 : 400,
+              borderBottom: tabPrincipal === tab.val ? `2px solid ${ACCENT}` : '2px solid transparent',
+              marginBottom:-1 }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {tabPrincipal === 'solicitacoes' && <AbaSolicitacoes solicitacoes={solicitacoes} setSolicitacoes={setSolicitacoes} />}
+
+      {tabPrincipal === 'franqueados' && <>
       {/* Stats */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24 }}>
         <StatCard label="Franqueados ativos" value={ativos.length} color={C.green} />
@@ -467,6 +578,7 @@ function PainelMaster({ onLogout }) {
       )}
 
       {relatorio && <ModalRelatorio f={relatorio.f} tipo={relatorio.tipo} leads={relatorio.leads} onClose={() => setRelatorio(null)} />}
+      </>}
     </div>
   )
 }
@@ -848,12 +960,21 @@ function LiaConfig({ franqueado }) {
     e.preventDefault()
     if (tipos.length === 0) return
     setEnviando(true)
-    // Salva no Supabase (tabela solicitacoes — precisará ser criada depois)
-    // Por ora registra no console e simula sucesso
-    console.log('Solicitação:', { franqueado_id: franqueado.id, unidade: franqueado.unidade, tipos, ...form, urgencia })
-    await new Promise(r => setTimeout(r, 800))
+    const { error } = await supabase.from('solicitacoes').insert({
+      franqueado_id: franqueado.id,
+      unidade: franqueado.unidade,
+      responsavel: franqueado.nome,
+      tipos,
+      como_hoje: form.como_hoje,
+      como_quer: form.como_quer,
+      exemplo: form.exemplo,
+      sugestao: form.sugestao,
+      urgencia,
+      status: 'pendente'
+    })
+    if (error) { console.error(error); alert('Erro ao enviar. Tente novamente.') }
+    else setEnviado(true)
     setEnviando(false)
-    setEnviado(true)
   }
 
   const inp = { width:'100%', padding:'10px 14px', border:`1px solid ${C.border}`, borderRadius:10, fontSize:13, outline:'none', background:C.surface }
