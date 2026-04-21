@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { rateLimit } from './_ratelimit.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -9,12 +10,13 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido' })
 
-  const { nome, telefone, responsavel, idade, franqueado_id, status } = req.body
+  // ✅ Rate limit: 30 leads por minuto por IP (Lia pode ter pico de atendimento)
+  if (rateLimit(req, res, { max: 30, windowMs: 60000 })) return
 
+  const { nome, telefone, responsavel, idade, franqueado_id, status } = req.body
   if (!nome || !franqueado_id) {
     return res.status(400).json({ erro: 'nome e franqueado_id são obrigatórios' })
   }
