@@ -262,6 +262,162 @@ function LoginPage() {
   )
 }
 
+// ─── ABA FINANCEIRO ──────────────────────────────────────────────────────────
+function AbaFinanceiro({ franqueados, leads }) {
+  const CUSTO_FIXO_UNIDADE = 8 // Cloudfy rateada
+  const ativos = franqueados.filter(f => f.status === 'ativo' || f.status === 'implantacao')
+
+  // Cálculos consolidados
+  const dadosPorFranqueado = ativos.map(f => {
+    const fl = leads.filter(l => l.franqueado_id === f.id)
+    const valorMensal = parseFloat(f.valor_mensal) || 0
+    const valorSetup  = parseFloat(f.valor_setup) || 0
+    const custoLead   = parseFloat(f.custo_por_lead) || 0.35
+    const limiteLeads = parseInt(f.limite_leads) || 200
+    const leadsCount  = fl.length
+    const custoAPI    = leadsCount * custoLead
+    const custoTotal  = custoAPI + CUSTO_FIXO_UNIDADE
+    const margem      = valorMensal - custoTotal
+    const margemPct   = valorMensal > 0 ? Math.round((margem / valorMensal) * 100) : 0
+    const pctLimite   = limiteLeads > 0 ? Math.round((leadsCount / limiteLeads) * 100) : 0
+    return { ...f, leadsCount, valorMensal, valorSetup, custoAPI, custoTotal, margem, margemPct, pctLimite, limiteLeads }
+  })
+
+  const receitaMensal = dadosPorFranqueado.reduce((s, f) => s + f.valorMensal, 0)
+  const receitaSetup  = dadosPorFranqueado.reduce((s, f) => s + f.valorSetup, 0)
+  const custoAPITotal = dadosPorFranqueado.reduce((s, f) => s + f.custoAPI, 0)
+  const custoFixoTotal = ativos.length * CUSTO_FIXO_UNIDADE + 80 // +80 Cloudfy base
+  const margemTotal   = receitaMensal - custoAPITotal - custoFixoTotal
+  const margemPct     = receitaMensal > 0 ? Math.round((margemTotal / receitaMensal) * 100) : 0
+
+  // Top 5 mais caros
+  const topCaros = [...dadosPorFranqueado].sort((a, b) => b.custoAPI - a.custoAPI).slice(0, 5)
+
+  // Alertas
+  const excedidos = dadosPorFranqueado.filter(f => f.pctLimite >= 100)
+  const alertas   = dadosPorFranqueado.filter(f => f.pctLimite >= 80 && f.pctLimite < 100)
+
+  return (
+    <div>
+      {/* Resumo geral */}
+      <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:10 }}>Resumo do mês</div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24 }}>
+        <div style={{ background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, padding:'16px 18px' }}>
+          <div style={{ fontSize:11, color:C.gray500, fontWeight:500, marginBottom:5 }}>Receita recorrente</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.green, lineHeight:1, letterSpacing:'-0.02em' }}>R$ {receitaMensal.toLocaleString('pt-BR')}</div>
+          <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>{ativos.length} unidades ativas</div>
+        </div>
+        <div style={{ background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, padding:'16px 18px' }}>
+          <div style={{ fontSize:11, color:C.gray500, fontWeight:500, marginBottom:5 }}>Custos do mês</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.red, lineHeight:1, letterSpacing:'-0.02em' }}>R$ {(custoAPITotal + custoFixoTotal).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0})}</div>
+          <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>API: R$ {custoAPITotal.toFixed(0)} · Infra: R$ {custoFixoTotal}</div>
+        </div>
+        <div style={{ background:C.surface, borderRadius:12, border:`2px solid ${margemTotal > 0 ? C.green : C.red}`, padding:'16px 18px' }}>
+          <div style={{ fontSize:11, color:C.gray500, fontWeight:500, marginBottom:5 }}>Margem líquida</div>
+          <div style={{ fontSize:22, fontWeight:800, color:margemTotal > 0 ? C.green : C.red, lineHeight:1, letterSpacing:'-0.02em' }}>R$ {margemTotal.toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0})}</div>
+          <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>{margemPct}% de margem</div>
+        </div>
+        <div style={{ background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, padding:'16px 18px' }}>
+          <div style={{ fontSize:11, color:C.gray500, fontWeight:500, marginBottom:5 }}>Setup faturado</div>
+          <div style={{ fontSize:22, fontWeight:800, color:ACCENT, lineHeight:1, letterSpacing:'-0.02em' }}>R$ {receitaSetup.toLocaleString('pt-BR')}</div>
+          <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>Receita pontual</div>
+        </div>
+      </div>
+
+      {/* Alertas */}
+      {(excedidos.length > 0 || alertas.length > 0) && (
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:10 }}>⚠️ Alertas de limite</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {excedidos.map(f => (
+              <div key={f.id} style={{ padding:'10px 14px', background:C.redLight, borderRadius:10, border:`1px solid #F5C2C2`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div>
+                  <span style={{ fontSize:13, fontWeight:600, color:C.red }}>{f.unidade}</span>
+                  <span style={{ fontSize:12, color:C.red, marginLeft:8 }}>excedeu o limite — {f.leadsCount}/{f.limiteLeads} leads ({f.pctLimite}%)</span>
+                </div>
+                <span style={{ fontSize:11, color:C.red, fontWeight:600 }}>Cobrar excedente: R$ {((f.leadsCount - f.limiteLeads) * 1).toFixed(0)}</span>
+              </div>
+            ))}
+            {alertas.map(f => (
+              <div key={f.id} style={{ padding:'10px 14px', background:C.amberLight, borderRadius:10, border:`1px solid #F5D5A5`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div>
+                  <span style={{ fontSize:13, fontWeight:600, color:C.amber }}>{f.unidade}</span>
+                  <span style={{ fontSize:12, color:C.amber, marginLeft:8 }}>próximo do limite — {f.leadsCount}/{f.limiteLeads} leads ({f.pctLimite}%)</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tabela detalhada */}
+      <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:10 }}>Detalhamento por unidade</div>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:900 }}>
+            <thead>
+              <tr style={{ background:'#FAFAF8' }}>
+                {['Unidade','Leads','% limite','Receita','Custo API','Margem','Margem %'].map(h => (
+                  <th key={h} style={{ padding:'10px 12px', textAlign:'left', fontSize:10, fontWeight:600, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:`1px solid ${C.border}`, whiteSpace:'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dadosPorFranqueado.map(f => (
+                <tr key={f.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                  <td style={{ padding:'10px 12px', fontWeight:600 }}>{f.unidade}</td>
+                  <td style={{ padding:'10px 12px' }}>{f.leadsCount}/{f.limiteLeads}</td>
+                  <td style={{ padding:'10px 12px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <div style={{ width:60, height:5, background:C.gray100, borderRadius:99, overflow:'hidden' }}>
+                        <div style={{ width:Math.min(f.pctLimite,100)+'%', height:'100%', background:f.pctLimite>=100?C.red:f.pctLimite>=80?C.amber:C.green }} />
+                      </div>
+                      <span style={{ fontSize:11, fontWeight:600, color:f.pctLimite>=100?C.red:f.pctLimite>=80?C.amber:C.gray500 }}>{f.pctLimite}%</span>
+                    </div>
+                  </td>
+                  <td style={{ padding:'10px 12px', fontWeight:600, color:C.green }}>R$ {f.valorMensal.toLocaleString('pt-BR')}</td>
+                  <td style={{ padding:'10px 12px', color:C.red }}>R$ {f.custoAPI.toFixed(2)}</td>
+                  <td style={{ padding:'10px 12px', fontWeight:600, color:f.margem > 0 ? C.green : C.red }}>R$ {f.margem.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style={{ padding:'10px 12px', color:f.margemPct > 50 ? C.green : f.margemPct > 0 ? C.amber : C.red, fontWeight:600 }}>{f.margemPct}%</td>
+                </tr>
+              ))}
+              {dadosPorFranqueado.length === 0 && <tr><td colSpan={7} style={{ padding:40, textAlign:'center', color:C.gray500, fontSize:13 }}>Nenhuma unidade ativa ou em trial.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Top caros */}
+      {topCaros.length > 0 && (
+        <div style={{ marginTop:24 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:10 }}>Top 5 unidades mais caras em API</div>
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:16 }}>
+            {topCaros.map((f, i) => {
+              const maxCusto = topCaros[0]?.custoAPI || 1
+              const barWidth = maxCusto > 0 ? (f.custoAPI / maxCusto) * 100 : 0
+              return (
+                <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, marginBottom: i < topCaros.length - 1 ? 10 : 0 }}>
+                  <span style={{ fontSize:11, color:C.gray500, width:16 }}>#{i + 1}</span>
+                  <span style={{ fontSize:13, fontWeight:600, width:150, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.unidade}</span>
+                  <div style={{ flex:1, height:8, background:C.gray100, borderRadius:99, overflow:'hidden' }}>
+                    <div style={{ width:barWidth + '%', height:'100%', background:f.margem > 0 ? ACCENT : C.red, transition:'width 0.5s' }} />
+                  </div>
+                  <span style={{ fontSize:12, fontWeight:600, color:C.red, width:80, textAlign:'right' }}>R$ {f.custoAPI.toFixed(2)}</span>
+                  <span style={{ fontSize:11, color:C.gray500, width:60, textAlign:'right' }}>{f.leadsCount} leads</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop:20, padding:'12px 16px', background:C.bg, borderRadius:10, fontSize:11, color:C.gray500 }}>
+        <strong>ℹ️ Base de cálculo:</strong> Custo API = leads × R$ 0,35 (custo médio Claude Sonnet) · Custo fixo unidade = R$ 8 (Cloudfy rateada) · Custo infraestrutura base = R$ 80 (Cloudfy plano avançado). Valores ajustáveis no modal "Editar" de cada franqueado.
+      </div>
+    </div>
+  )
+}
+
 // ─── ABA SOLICITAÇÕES ────────────────────────────────────────────────────────
 function AbaSolicitacoes({ solicitacoes, setSolicitacoes }) {
   const urgMap = {
@@ -436,6 +592,7 @@ function PainelMaster({ onLogout }) {
       <div style={{ display:'flex', gap:4, marginBottom:24, borderBottom:`1px solid ${C.border}` }}>
         {[
           { val:'franqueados', label:'Franqueados' },
+          { val:'financeiro', label:'💰 Financeiro' },
           { val:'solicitacoes', label:`Solicitações${solicitacoes.filter(s=>s.status==='pendente').length > 0 ? ` (${solicitacoes.filter(s=>s.status==='pendente').length})` : ''}` },
         ].map(tab => (
           <button key={tab.val} onClick={() => setTabPrincipal(tab.val)}
@@ -448,6 +605,8 @@ function PainelMaster({ onLogout }) {
           </button>
         ))}
       </div>
+
+      {tabPrincipal === 'financeiro' && <AbaFinanceiro franqueados={franqueados} leads={leads} />}
 
       {tabPrincipal === 'solicitacoes' && <AbaSolicitacoes solicitacoes={solicitacoes} setSolicitacoes={setSolicitacoes} />}
 
@@ -476,7 +635,7 @@ function PainelMaster({ onLogout }) {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:1100 }}>
             <thead>
               <tr style={{ background:'#FAFAF8' }}>
-                {['Unidade','Responsável','Email','Status','Leads','Matrículas','Conv.','Ações','ID (Lia)'].map(h => (
+                {['Unidade','Responsável','Status','Leads','Limite','R$/mês','Margem','Ações','ID (Lia)'].map(h => (
                   <th key={h} style={{ padding:'10px 12px', textAlign:'left', fontSize:10, fontWeight:600, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:`1px solid ${C.border}`, whiteSpace:'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -489,15 +648,30 @@ function PainelMaster({ onLogout }) {
                 const ag  = fl.filter(l => l.status === 'agendado').length
                 const isTrial = f.status === 'implantacao'
                 const isAtivo = f.status === 'ativo'
+                const valorMensal = parseFloat(f.valor_mensal) || 0
+                const limiteLeads  = parseInt(f.limite_leads) || 200
+                const custoLead    = parseFloat(f.custo_por_lead) || 0.35
+                const custoAPI     = fl.length * custoLead
+                const custoFixo    = 8 // Cloudfy rateada
+                const margem       = valorMensal - custoAPI - custoFixo
+                const pctLimite    = limiteLeads > 0 ? Math.round((fl.length / limiteLeads) * 100) : 0
+                const limiteStatus = pctLimite >= 100 ? 'excedido' : pctLimite >= 80 ? 'alerta' : 'ok'
                 return (
                   <tr key={f.id} style={{ borderBottom:`1px solid ${C.border}` }}>
                     <td style={{ padding:'10px 12px', fontWeight:600, fontSize:13 }}>{f.unidade}</td>
                     <td style={{ padding:'10px 12px', fontSize:12 }}>{f.nome}</td>
-                    <td style={{ padding:'10px 12px', fontSize:11, color:C.gray500 }}>{f.email}</td>
                     <td style={{ padding:'10px 12px' }}><BadgeFranq status={f.status} /></td>
-                    <td style={{ padding:'10px 12px', fontSize:13 }}>{fl.length}</td>
-                    <td style={{ padding:'10px 12px', fontWeight:600, color:C.green, fontSize:13 }}>{fm}</td>
-                    <td style={{ padding:'10px 12px', fontSize:12 }}>{pct(fv, ag + fv)}%</td>
+                    <td style={{ padding:'10px 12px', fontSize:13 }}>{fl.length}<span style={{ fontSize:11, color:C.gray500 }}> / {limiteLeads}</span></td>
+                    <td style={{ padding:'10px 12px', fontSize:12 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <div style={{ width:60, height:5, background:C.gray100, borderRadius:99, overflow:'hidden' }}>
+                          <div style={{ width:Math.min(pctLimite,100)+'%', height:'100%', background:limiteStatus==='excedido'?C.red:limiteStatus==='alerta'?C.amber:C.green }} />
+                        </div>
+                        <span style={{ fontSize:11, color:limiteStatus==='excedido'?C.red:limiteStatus==='alerta'?C.amber:C.gray500, fontWeight: limiteStatus !== 'ok' ? 600 : 400 }}>{pctLimite}%</span>
+                      </div>
+                    </td>
+                    <td style={{ padding:'10px 12px', fontSize:13, fontWeight:600 }}>R$ {valorMensal.toLocaleString('pt-BR')}</td>
+                    <td style={{ padding:'10px 12px', fontWeight:600, fontSize:13, color:margem > 0 ? C.green : C.red }}>R$ {margem.toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
                     <td style={{ padding:'10px 12px' }}>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
                         <button onClick={() => setEditandoFranq({ ...f })} style={{ fontSize:11, padding:'4px 8px', border:`1px solid ${C.border}`, borderRadius:6, background:C.surface, cursor:'pointer', color:C.gray700 }}>Editar</button>
@@ -555,7 +729,8 @@ function PainelMaster({ onLogout }) {
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
           <div style={{ background:C.surface, borderRadius:16, padding:28, width:'100%', maxWidth:560, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ fontSize:16, fontWeight:700, marginBottom:18 }}>Editar — {editandoFranq.unidade}</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>Dados básicos</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
               {[['Unidade','unidade'],['Responsável','nome'],['Email','email']].map(([label, key]) => (
                 <div key={key}>
                   <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>{label}</label>
@@ -568,6 +743,35 @@ function PainelMaster({ onLogout }) {
                   {STATUS_FRANQUEADO.map(s => <option key={s.val} value={s.val}>{s.label}</option>)}
                 </select>
               </div>
+            </div>
+
+            <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>💰 Financeiro</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              {[
+                ['Valor mensal (R$)','valor_mensal','number'],
+                ['Setup inicial (R$)','valor_setup','number'],
+                ['Limite de leads/mês','limite_leads','number'],
+                ['Custo por lead (R$)','custo_por_lead','number'],
+              ].map(([label, key, type]) => (
+                <div key={key}>
+                  <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>{label}</label>
+                  <input type={type} step="0.01" style={inp} value={editandoFranq[key] || ''} onChange={e => setEditandoFranq({ ...editandoFranq, [key]: e.target.value })} />
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>📅 Datas</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+              {[
+                ['Início do contrato','data_inicio_contrato'],
+                ['Virou ativo em','data_ativo'],
+                ['Fim do contrato','fim_contrato'],
+              ].map(([label, key]) => (
+                <div key={key}>
+                  <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>{label}</label>
+                  <input type="date" style={inp} value={editandoFranq[key] || ''} onChange={e => setEditandoFranq({ ...editandoFranq, [key]: e.target.value })} />
+                </div>
+              ))}
             </div>
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:18 }}>
               <button onClick={() => setEditandoFranq(null)} style={{ fontSize:13, padding:'8px 16px', border:`1px solid ${C.border}`, borderRadius:9, background:C.surface, cursor:'pointer', color:C.gray700 }}>Cancelar</button>
