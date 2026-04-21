@@ -32,6 +32,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Campos obrigatórios: nome, unidade, email, senha' })
   }
 
+  // ✅ Validação de senha forte
+  if (senha.length < 8) return res.status(400).json({ error: 'A senha deve ter no mínimo 8 caracteres.' })
+  if (!/[a-zA-Z]/.test(senha)) return res.status(400).json({ error: 'A senha deve conter ao menos uma letra.' })
+  if (!/[0-9]/.test(senha)) return res.status(400).json({ error: 'A senha deve conter ao menos um número.' })
+
   try {
     // 1. Cria usuário no Auth
     const { data: newUser, error: userError } = await supabase.auth.admin.createUser({
