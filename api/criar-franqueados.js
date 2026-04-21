@@ -1,81 +1,63 @@
 import { createClient } from '@supabase/supabase-js'
+import { rateLimit } from './_ratelimit.js'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' })
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido' })
+
+  // ✅ Rate limit: 5 criações por minuto por IP (endpoint sensível)
+  if (rateLimit(req, res, { max: 5, windowMs: 60000 })) return
+
+  // Valida que é admin via JWT
+  const authHeader = req.headers.authorization
+  if (!authHeader) return res.status(401).json({ error: 'Token não enviado' })
+
+  const token = authHeader.replace('Bearer ', '')
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+  if (authError || !user) return res.status(401).json({ error: 'Token inválido' })
+
+  const isAdmin = user.app_metadata?.is_admin === true
+  if (!isAdmin) return res.status(403).json({ error: 'Apenas admin pode criar franqueados' })
+
+  const { nome, unidade, email, senha, status } = req.body
+  if (!nome || !unidade || !email || !senha) {
+    return res.status(400).json({ error: 'Campos obrigatórios: nome, unidade, email, senha' })
   }
-
-  const supabaseUrl = process.env.SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return res.status(500).json({ error: 'Variáveis de ambiente não configuradas' })
-  }
-
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
 
   try {
-    // Valida que quem está chamando é admin
-    const authHeader = req.headers.authorization
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token de autenticação ausente' })
-    }
-    const token = authHeader.replace('Bearer ', '')
-
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
-    if (userError || !user) {
-      return res.status(401).json({ error: 'Token inválido' })
-    }
-
-    const { data: caller } = await supabaseAdmin
-      .from('franqueados')
-      .select('is_admin')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!caller?.is_admin) {
-      return res.status(403).json({ error: 'Apenas admins podem criar franqueados' })
-    }
-
-    // Cria o usuário
-    const { nome, unidade, email, senha, status } = req.body
-    if (!nome || !unidade || !email || !senha) {
-      return res.status(400).json({ error: 'Campos obrigatórios faltando' })
-    }
-    if (senha.length < 6) {
-      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' })
-    }
-
-    const { data: signData, error: signError } = await supabaseAdmin.auth.admin.createUser({
+    // 1. Cria usuário no Auth
+    const { data: newUser, error: userError } = await supabase.auth.admin.createUser({
       email,
       password: senha,
       email_confirm: true
     })
+    if (userError) return res.status(400).json({ error: userError.message })
 
-    if (signError) {
-      return res.status(400).json({ error: 'Erro ao criar usuário: ' + signError.message })
-    }
-
-    const userId = signData.user.id
-
-    const { error: dbError } = await supabaseAdmin.from('franqueados').insert({
+    // 2. Cria registro na tabela franqueados
+    const { data: franq, error: franqError } = await supabase.from('franqueados').insert({
       nome,
       unidade,
       email,
-      user_id: userId,
-      is_admin: false,
-      status: status || 'implantacao'
-    })
+      user_id: newUser.user.id,
+      status: status || 'implantacao',
+      is_admin: false
+    }).select().single()
 
-    if (dbError) {
-      await supabaseAdmin.auth.admin.deleteUser(userId)
-      return res.status(500).json({ error: 'Erro ao salvar: ' + dbError.message })
+    if (franqError) {
+      // Rollback: deleta o usuário se falhou ao criar franqueado
+      await supabase.auth.admin.deleteUser(newUser.user.id)
+      return res.status(500).json({ error: franqError.message })
     }
 
-    return res.status(200).json({ ok: true, user_id: userId })
-
+    return res.status(201).json({ sucesso: true, franqueado: franq })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
