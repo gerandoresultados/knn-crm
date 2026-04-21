@@ -285,6 +285,10 @@ function AbaFinanceiro({ franqueados, leads }) {
 
   const receitaMensal = dadosPorFranqueado.reduce((s, f) => s + f.valorMensal, 0)
   const receitaSetup  = dadosPorFranqueado.reduce((s, f) => s + f.valorSetup, 0)
+  const ltvTotal = dadosPorFranqueado.reduce((s, f) => {
+    const meses = parseInt(f.meses_contrato) || 1
+    return s + (f.valorMensal * meses) + f.valorSetup
+  }, 0)
   const custoAPITotal = dadosPorFranqueado.reduce((s, f) => s + f.custoAPI, 0)
   const custoFixoTotal = ativos.length * CUSTO_FIXO_UNIDADE + 80 // +80 Cloudfy base
   const margemTotal   = receitaMensal - custoAPITotal - custoFixoTotal
@@ -318,9 +322,9 @@ function AbaFinanceiro({ franqueados, leads }) {
           <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>{margemPct}% de margem</div>
         </div>
         <div style={{ background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, padding:'16px 18px' }}>
-          <div style={{ fontSize:11, color:C.gray500, fontWeight:500, marginBottom:5 }}>Setup faturado</div>
-          <div style={{ fontSize:22, fontWeight:800, color:ACCENT, lineHeight:1, letterSpacing:'-0.02em' }}>R$ {receitaSetup.toLocaleString('pt-BR')}</div>
-          <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>Receita pontual</div>
+          <div style={{ fontSize:11, color:C.gray500, fontWeight:500, marginBottom:5 }}>LTV total (contratos)</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.purple, lineHeight:1, letterSpacing:'-0.02em' }}>R$ {ltvTotal.toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 })}</div>
+          <div style={{ fontSize:11, color:C.gray500, marginTop:3 }}>Receita total prevista</div>
         </div>
       </div>
 
@@ -357,15 +361,26 @@ function AbaFinanceiro({ franqueados, leads }) {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:900 }}>
             <thead>
               <tr style={{ background:'#FAFAF8' }}>
-                {['Unidade','Leads','% limite','Receita','Custo API','Margem','Margem %'].map(h => (
+                {['Unidade','Contrato','Leads','% limite','Receita/mês','Custo API','Margem','LTV'].map(h => (
                   <th key={h} style={{ padding:'10px 12px', textAlign:'left', fontSize:10, fontWeight:600, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:`1px solid ${C.border}`, whiteSpace:'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {dadosPorFranqueado.map(f => (
+              {dadosPorFranqueado.map(f => {
+                const meses = parseInt(f.meses_contrato) || 1
+                const ltv = f.valorMensal * meses + f.valorSetup
+                const tipoLabel = f.tipo_contrato === 'anual' ? 'Anual' : f.tipo_contrato === 'semestral' ? 'Semestral' : f.tipo_contrato === 'trimestral' ? 'Trimestral' : 'Mensal'
+                const desconto = parseFloat(f.desconto_pct) || 0
+                return (
                 <tr key={f.id} style={{ borderBottom:`1px solid ${C.border}` }}>
                   <td style={{ padding:'10px 12px', fontWeight:600 }}>{f.unidade}</td>
+                  <td style={{ padding:'10px 12px' }}>
+                    <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                      <span style={{ fontSize:12, fontWeight:500 }}>{tipoLabel}</span>
+                      {desconto > 0 && <span style={{ fontSize:10, color:C.amber, fontWeight:600 }}>-{desconto}% desc.</span>}
+                    </div>
+                  </td>
                   <td style={{ padding:'10px 12px' }}>{f.leadsCount}/{f.limiteLeads}</td>
                   <td style={{ padding:'10px 12px' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -378,10 +393,11 @@ function AbaFinanceiro({ franqueados, leads }) {
                   <td style={{ padding:'10px 12px', fontWeight:600, color:C.green }}>R$ {f.valorMensal.toLocaleString('pt-BR')}</td>
                   <td style={{ padding:'10px 12px', color:C.red }}>R$ {f.custoAPI.toFixed(2)}</td>
                   <td style={{ padding:'10px 12px', fontWeight:600, color:f.margem > 0 ? C.green : C.red }}>R$ {f.margem.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                  <td style={{ padding:'10px 12px', color:f.margemPct > 50 ? C.green : f.margemPct > 0 ? C.amber : C.red, fontWeight:600 }}>{f.margemPct}%</td>
+                  <td style={{ padding:'10px 12px', fontWeight:600, color:C.purple }}>R$ {ltv.toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 })}</td>
                 </tr>
-              ))}
-              {dadosPorFranqueado.length === 0 && <tr><td colSpan={7} style={{ padding:40, textAlign:'center', color:C.gray500, fontSize:13 }}>Nenhuma unidade ativa ou em trial.</td></tr>}
+                )
+              })}
+              {dadosPorFranqueado.length === 0 && <tr><td colSpan={8} style={{ padding:40, textAlign:'center', color:C.gray500, fontSize:13 }}>Nenhuma unidade ativa ou em trial.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -541,8 +557,12 @@ function PainelMaster({ onLogout }) {
   // ✅ SEGURO: usa API route com service_role, não desloga o admin
   async function adicionarFranqueado(e) {
     e.preventDefault()
-    setSalvando(true)
     setMsg('')
+    // Validação de senha forte
+    if (novaSenha.length < 8) { setMsg('A senha deve ter no mínimo 8 caracteres.'); setMsgTipo('erro'); return }
+    if (!/[a-zA-Z]/.test(novaSenha)) { setMsg('A senha deve conter ao menos uma letra.'); setMsgTipo('erro'); return }
+    if (!/[0-9]/.test(novaSenha)) { setMsg('A senha deve conter ao menos um número.'); setMsgTipo('erro'); return }
+    setSalvando(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch('/api/criar-franqueado', {
@@ -703,7 +723,7 @@ function PainelMaster({ onLogout }) {
           <div style={{ background:C.surface, borderRadius:16, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ fontSize:16, fontWeight:700, marginBottom:18 }}>Novo franqueado</div>
             <form onSubmit={adicionarFranqueado}>
-              {[{l:'Nome do responsável',v:novoNome,s:setNovoNome,t:'text',ph:'Ex: João Silva'},{l:'Unidade',v:novaUnidade,s:setNovaUnidade,t:'text',ph:'Ex: KNN Moema'},{l:'Email de acesso',v:novoEmail,s:setNovoEmail,t:'email',ph:'franqueado@email.com'},{l:'Senha inicial',v:novaSenha,s:setNovaSenha,t:'password',ph:'Mínimo 6 caracteres'}].map(f => (
+              {[{l:'Nome do responsável',v:novoNome,s:setNovoNome,t:'text',ph:'Ex: João Silva'},{l:'Unidade',v:novaUnidade,s:setNovaUnidade,t:'text',ph:'Ex: KNN Moema'},{l:'Email de acesso',v:novoEmail,s:setNovoEmail,t:'email',ph:'franqueado@email.com'},{l:'Senha inicial',v:novaSenha,s:setNovaSenha,t:'password',ph:'Min 8 car, com letra e número'}].map(f => (
                 <div key={f.l} style={{ marginBottom:12 }}>
                   <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>{f.l}</label>
                   <input type={f.t} required value={f.v} onChange={e => f.s(e.target.value)} placeholder={f.ph} style={inp} />
@@ -745,8 +765,47 @@ function PainelMaster({ onLogout }) {
               </div>
             </div>
 
-            <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>💰 Financeiro</div>
+            <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>📝 Contrato</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              <div>
+                <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>Tipo de contrato</label>
+                <select style={inp} value={editandoFranq.tipo_contrato || 'mensal'}
+                  onChange={e => {
+                    const tipo = e.target.value
+                    const configs = {
+                      mensal:      { meses: 1,  desconto: 0,  motivo: '' },
+                      trimestral:  { meses: 3,  desconto: 5,  motivo: 'Contrato trimestral' },
+                      semestral:   { meses: 6,  desconto: 10, motivo: 'Contrato semestral' },
+                      anual:       { meses: 12, desconto: 15, motivo: 'Contrato anual' },
+                    }
+                    const cfg = configs[tipo] || configs.mensal
+                    // Recalcula valor_mensal com base em R$ 397 cheio aplicando desconto
+                    const valorCheio = 397
+                    const valorComDesconto = Number((valorCheio * (1 - cfg.desconto / 100)).toFixed(2))
+                    setEditandoFranq({
+                      ...editandoFranq,
+                      tipo_contrato: tipo,
+                      meses_contrato: cfg.meses,
+                      desconto_pct: cfg.desconto,
+                      desconto_motivo: cfg.motivo,
+                      valor_mensal: valorComDesconto,
+                    })
+                  }}>
+                  <option value="mensal">Mensal — sem desconto</option>
+                  <option value="trimestral">Trimestral — 5% desconto</option>
+                  <option value="semestral">Semestral — 10% desconto</option>
+                  <option value="anual">Anual — 15% desconto</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>Meses de contrato</label>
+                <input type="number" style={inp} value={editandoFranq.meses_contrato || 1}
+                  onChange={e => setEditandoFranq({ ...editandoFranq, meses_contrato: e.target.value })} />
+              </div>
+            </div>
+
+            <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>💰 Financeiro</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
               {[
                 ['Valor mensal (R$)','valor_mensal','number'],
                 ['Setup inicial (R$)','valor_setup','number'],
@@ -758,14 +817,36 @@ function PainelMaster({ onLogout }) {
                   <input type={type} step="0.01" style={inp} value={editandoFranq[key] || ''} onChange={e => setEditandoFranq({ ...editandoFranq, [key]: e.target.value })} />
                 </div>
               ))}
+              <div>
+                <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>Desconto aplicado (%)</label>
+                <input type="number" step="0.01" style={inp} value={editandoFranq.desconto_pct || ''} onChange={e => setEditandoFranq({ ...editandoFranq, desconto_pct: e.target.value })} placeholder="Ex: 15" />
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>Motivo do desconto</label>
+                <input type="text" style={inp} value={editandoFranq.desconto_motivo || ''} onChange={e => setEditandoFranq({ ...editandoFranq, desconto_motivo: e.target.value })} placeholder="Ex: Contrato semestral" />
+              </div>
             </div>
 
+            {/* LTV calculado */}
+            {editandoFranq.valor_mensal && editandoFranq.meses_contrato && (
+              <div style={{ background:C.greenLight, borderRadius:10, padding:'12px 14px', marginBottom:20, border:`1px solid #C5E0A5` }}>
+                <div style={{ fontSize:11, fontWeight:600, color:C.green, marginBottom:4 }}>💎 LTV estimado do contrato</div>
+                <div style={{ fontSize:18, fontWeight:800, color:C.green }}>
+                  R$ {(parseFloat(editandoFranq.valor_mensal) * parseInt(editandoFranq.meses_contrato) + (parseFloat(editandoFranq.valor_setup) || 0)).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 })}
+                </div>
+                <div style={{ fontSize:11, color:C.green, marginTop:3 }}>
+                  {editandoFranq.meses_contrato}× R$ {parseFloat(editandoFranq.valor_mensal).toLocaleString('pt-BR')}{(parseFloat(editandoFranq.valor_setup) > 0) ? ` + R$ ${parseFloat(editandoFranq.valor_setup).toLocaleString('pt-BR')} setup` : ''}
+                </div>
+              </div>
+            )}
+
             <div style={{ fontSize:11, fontWeight:700, color:C.gray500, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>📅 Datas</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               {[
                 ['Início do contrato','data_inicio_contrato'],
                 ['Virou ativo em','data_ativo'],
                 ['Fim do contrato','fim_contrato'],
+                ['Data de renovação','data_renovacao'],
               ].map(([label, key]) => (
                 <div key={key}>
                   <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>{label}</label>
@@ -951,7 +1032,9 @@ function ModalSenha({ onClose }) {
   async function handleSubmit(e) {
     e.preventDefault()
     setErro('')
-    if (novaSenha.length < 6) { setErro('A senha deve ter no mínimo 6 caracteres.'); return }
+    if (novaSenha.length < 8) { setErro('A senha deve ter no mínimo 8 caracteres.'); return }
+    if (!/[a-zA-Z]/.test(novaSenha)) { setErro('A senha deve conter ao menos uma letra.'); return }
+    if (!/[0-9]/.test(novaSenha)) { setErro('A senha deve conter ao menos um número.'); return }
     if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return }
     setSalvando(true)
     // Valida senha atual
@@ -970,6 +1053,11 @@ function ModalSenha({ onClose }) {
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
       <div style={{ background:C.surface, borderRadius:16, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        {!sucesso && (
+          <div style={{ fontSize:11, color:C.gray500, background:C.bg, padding:'8px 12px', borderRadius:8, marginBottom:12 }}>
+            🔒 A senha deve ter no mínimo 8 caracteres, com pelo menos 1 letra e 1 número.
+          </div>
+        )}
         {sucesso ? (
           <>
             <div style={{ textAlign:'center', padding:'20px 0' }}>
