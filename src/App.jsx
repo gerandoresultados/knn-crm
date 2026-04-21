@@ -735,12 +735,80 @@ function AbaOnboarding() {
   )
 }
 
+// ─── MODAL ALTERAR SENHA ─────────────────────────────────────────────────────
+function ModalSenha({ onClose }) {
+  const [senhaAtual, setSenhaAtual] = useState('')
+  const [novaSenha, setNovaSenha] = useState('')
+  const [confirmar, setConfirmar] = useState('')
+  const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setErro('')
+    if (novaSenha.length < 6) { setErro('A senha deve ter no mínimo 6 caracteres.'); return }
+    if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return }
+    setSalvando(true)
+    // Valida senha atual
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error: loginError } = await supabase.auth.signInWithPassword({ email: user.email, password: senhaAtual })
+    if (loginError) { setErro('Senha atual incorreta.'); setSalvando(false); return }
+    // Atualiza senha
+    const { error } = await supabase.auth.updateUser({ password: novaSenha })
+    if (error) setErro('Erro: ' + error.message)
+    else setSucesso(true)
+    setSalvando(false)
+  }
+
+  const inp = { width:'100%', padding:'10px 14px', border:`1px solid ${C.border}`, borderRadius:10, fontSize:13, outline:'none', background:C.surface, boxSizing:'border-box' }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ background:C.surface, borderRadius:16, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        {sucesso ? (
+          <>
+            <div style={{ textAlign:'center', padding:'20px 0' }}>
+              <div style={{ width:54, height:54, borderRadius:'50%', background:C.greenLight, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, margin:'0 auto 14px' }}>✅</div>
+              <div style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Senha alterada!</div>
+              <div style={{ fontSize:13, color:C.gray500 }}>Use a nova senha no próximo login.</div>
+            </div>
+            <button onClick={onClose} style={{ width:'100%', padding:'10px', background:ACCENT, color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' }}>Fechar</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize:16, fontWeight:700, marginBottom:18 }}>Alterar senha</div>
+            <form onSubmit={handleSubmit}>
+              {[
+                { l:'Senha atual', v:senhaAtual, s:setSenhaAtual },
+                { l:'Nova senha', v:novaSenha, s:setNovaSenha },
+                { l:'Confirmar nova senha', v:confirmar, s:setConfirmar },
+              ].map(f => (
+                <div key={f.l} style={{ marginBottom:12 }}>
+                  <label style={{ fontSize:11, color:C.gray500, display:'block', marginBottom:4, fontWeight:500 }}>{f.l}</label>
+                  <input type="password" required value={f.v} onChange={e => f.s(e.target.value)} style={inp} />
+                </div>
+              ))}
+              {erro && <div style={{ fontSize:12, color:C.red, background:C.redLight, padding:'8px 12px', borderRadius:8, marginBottom:12 }}>{erro}</div>}
+              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                <button type="button" onClick={onClose} style={{ fontSize:13, padding:'8px 16px', border:`1px solid ${C.border}`, borderRadius:9, background:C.surface, cursor:'pointer', color:C.gray700 }}>Cancelar</button>
+                <button type="submit" disabled={salvando} style={{ fontSize:13, padding:'8px 16px', border:'none', borderRadius:9, background:ACCENT, color:'#fff', cursor:'pointer', fontWeight:600 }}>{salvando ? 'Salvando...' : 'Alterar'}</button>
+              </div>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── CRM FRANQUEADO ───────────────────────────────────────────────────────────
 function CRMFranqueado({ franqueado }) {
   const [leads, setLeads] = useState([])
   const [consultores, setConsultores] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalConsultores, setModalConsultores] = useState(false)
+  const [modalSenha, setModalSenha] = useState(false)
   const [novoConsultor, setNovoConsultor] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [busca, setBusca] = useState('')
@@ -797,9 +865,14 @@ function CRMFranqueado({ franqueado }) {
           <h1 style={{ fontSize:20, fontWeight:800, letterSpacing:'-0.02em', marginBottom:2 }}>Leads & Funil</h1>
           <p style={{ fontSize:12, color:C.gray500 }}>Unidade: {franqueado.unidade} · {new Date().toLocaleDateString('pt-BR', { month:'long', year:'numeric' })}</p>
         </div>
-        <button onClick={() => setModalConsultores(true)} style={{ fontSize:13, padding:'8px 14px', border:`1px solid ${C.border}`, borderRadius:10, background:C.surface, cursor:'pointer', color:C.gray700, fontWeight:500 }}>
-          Gerenciar consultores
-        </button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={() => setModalSenha(true)} style={{ fontSize:13, padding:'8px 14px', border:`1px solid ${C.border}`, borderRadius:10, background:C.surface, cursor:'pointer', color:C.gray700, fontWeight:500 }}>
+            Alterar senha
+          </button>
+          <button onClick={() => setModalConsultores(true)} style={{ fontSize:13, padding:'8px 14px', border:`1px solid ${C.border}`, borderRadius:10, background:C.surface, cursor:'pointer', color:C.gray700, fontWeight:500 }}>
+            Gerenciar consultores
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -919,6 +992,8 @@ function CRMFranqueado({ franqueado }) {
       </div>
 
       {/* Modal consultores */}
+      {modalSenha && <ModalSenha onClose={() => setModalSenha(false)} />}
+
       {modalConsultores && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div style={{ background:C.surface, borderRadius:16, padding:24, width:340, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
